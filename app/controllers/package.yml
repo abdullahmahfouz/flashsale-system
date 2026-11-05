@@ -1,0 +1,7 @@
+# api package: HTTP controllers (/api/v1)
+enforce_dependencies: true
+enforce_privacy: false
+dependencies:
+  - "."
+  - packages/catalog
+  - packages/orders

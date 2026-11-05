@@ -1,0 +1,6 @@
+# orders package: orders and line items. Models physically live in app/models (flat dir, cannot be moved).
+enforce_dependencies: true
+enforce_privacy: false
+dependencies:
+  - "."
+  - packages/catalog

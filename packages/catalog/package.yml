@@ -1,0 +1,5 @@
+# catalog package: products. Product model physically lives in app/models (flat dir, cannot be moved).
+enforce_dependencies: true
+enforce_privacy: false
+dependencies:
+  - "."
