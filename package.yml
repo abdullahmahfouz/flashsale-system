@@ -1,4 +1,3 @@
 # Root package: everything under the flat app/models, app/jobs, app/services dirs
 # (which cannot be moved) lives here. See PROGRESS.md for the package/dir mismatch.
 enforce_dependencies: false
-enforce_privacy: false
