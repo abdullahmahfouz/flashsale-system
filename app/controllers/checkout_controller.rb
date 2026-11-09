@@ -10,7 +10,7 @@ class CheckoutController < ApplicationController
     key = request.headers["Idempotency-Key"].presence
     product_id = positive_int(params[:product_id])
     user_id = positive_int(params[:user_id])
-    quantity = positive_int(params[:quantity])
+    quantity = exactly_one(params[:quantity])
     unless key && product_id && user_id && quantity
       return render json: { error: "invalid input" }, status: :unprocessable_entity
     end
@@ -38,12 +38,12 @@ class CheckoutController < ApplicationController
   end
 
   # locked: transaction + SELECT ... FOR UPDATE. idempotent adds key handling.
-  # Stock is decremented by 1 per order (same as naive), so
+  # quantity is validated to be exactly 1, so stock drops by 1 per order and
   # "starting stock - stock left = paid orders" (SPEC invariant 3) holds.
   def locked_checkout(key, product_id, user_id, quantity, idempotent:)
     if idempotent
       existing = Order.find_by(idempotency_key: key)
-      return render json: existing, status: :ok if existing
+      return render_replay(existing, product_id, user_id, quantity) if existing
     end
 
     result = nil
@@ -75,20 +75,22 @@ class CheckoutController < ApplicationController
       result = [:created, order]
     end
 
-    render_locked_result(result)
+    render_locked_result(result, product_id, user_id, quantity)
   rescue ActiveRecord::RecordNotUnique
     # Transaction already rolled back (stock decrement included).
-    raise unless idempotent
+    unless idempotent
+      return render json: { error: "duplicate Idempotency-Key" }, status: :conflict
+    end
     existing = Order.find_by!(idempotency_key: key)
-    render json: existing, status: :ok
+    render_replay(existing, product_id, user_id, quantity)
   end
 
-  def render_locked_result(result)
+  def render_locked_result(result, product_id, user_id, quantity)
     kind, order = result
     case kind
     when :invalid_product then render json: { error: "invalid product_id" }, status: :unprocessable_entity
     when :sold_out then render json: { error: "sold out" }, status: :conflict
-    when :duplicate then render json: order, status: :ok
+    when :duplicate then render_replay(order, product_id, user_id, quantity)
     when :created then render json: order, status: :created
     end
   end
@@ -97,5 +99,23 @@ class CheckoutController < ApplicationController
     return nil unless value.to_s.match?(/\A\d+\z/)
     n = value.to_s.to_i
     n.positive? ? n : nil
+  end
+
+  def same_payload?(order, product_id, user_id, quantity)
+    order.product_id == product_id && order.user_id == user_id && order.quantity == quantity
+  end
+
+  def render_replay(order, product_id, user_id, quantity)
+    if same_payload?(order, product_id, user_id, quantity)
+      render json: order, status: :ok
+    else
+      render json: { error: "Idempotency-Key reused with a different payload" }, status: :unprocessable_entity
+    end
+  end
+
+  # SPEC clarification: quantity must be exactly 1.
+  def exactly_one(value)
+    return nil unless value.is_a?(String) || value.is_a?(Integer)
+    value.to_s == "1" ? 1 : nil
   end
 end

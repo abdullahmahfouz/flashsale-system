@@ -5,7 +5,6 @@ require_relative "../support/checkout_helpers"
 class CheckoutStatusTest < ActionDispatch::IntegrationTest
   include CheckoutHelpers
   self.use_transactional_tests = false
-  self.fixture_table_names = []
 
   setup { clean_tables }
   teardown { clean_tables }

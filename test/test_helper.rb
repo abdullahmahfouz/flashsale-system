@@ -2,14 +2,6 @@ ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
 
-module ActiveSupport
-  class TestCase
-    # Run tests in parallel with specified workers
-    parallelize(workers: :number_of_processors)
-
-    # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
-    fixtures :all
-
-    # Add more helper methods to be used by all tests here...
-  end
-end
+# No `parallelize` and no `fixtures :all`: every test here is non-transactional, builds its own
+# data and cleans up manually (Orders then Products), and all tests share one test database,
+# so parallel workers would corrupt each other. The scaffold fixtures were deleted.

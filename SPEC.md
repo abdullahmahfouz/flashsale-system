@@ -61,3 +61,11 @@ Wrap in a transaction and load the product with `Product.lock.find` (`SELECT ...
 `locked` plus key handling:
 - If an order with the given key already exists, return it with **200**.
 - If a concurrent request with the same key hits `ActiveRecord::RecordNotUnique`, roll back (stock decrement included) and return the existing order with **200**.
+
+## Clarifications (added after review)
+
+- **Quantity:** `quantity` must be exactly `1`. Any other value (0, negative, > 1, non-integer) is **422**. Every mode decrements stock by 1 per order, so invariant 3 counts orders and units identically.
+- **Unknown mode:** a `CHECKOUT_MODE` other than `naive`, `locked` or `idempotent` (including unset) returns **501** with an error body. 501 is part of the status table for `POST /checkout` for this case only.
+- **Replayed key with a different payload (idempotent mode):** the payload is `product_id`, `user_id`, `quantity`. If an existing order for the key has the same payload, return it with **200**. If the payload differs, return **422** and write nothing. This also applies on the `RecordNotUnique` race path: roll back (stock decrement included), then return 200 with the existing order if the payload matches, or 422 if it does not.
+- **Duplicate key in locked mode:** locked has no key handling, but it must not crash. A duplicate key returns **409** with error `duplicate Idempotency-Key`; the transaction rolls back and stock is unchanged. (A 409 caused by a duplicate key is distinguished from sold-out by its error body.)
+- **Duplicate key in naive mode:** no handling; the unique index rejects the second order and the request fails. Naive is deliberately unsafe.
