@@ -16,21 +16,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_201016) do
 
   create_table "orders", force: :cascade do |t|
     t.bigint "product_id", null: false
-    t.string "user_id"
-    t.integer "quantity"
-    t.string "status"
-    t.string "idempotency_key"
+    t.bigint "user_id", null: false
+    t.integer "quantity", null: false
+    t.string "status", null: false
+    t.string "idempotency_key", null: false
     t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
     t.index ["idempotency_key"], name: "index_orders_on_idempotency_key", unique: true
     t.index ["product_id"], name: "index_orders_on_product_id"
   end
 
   create_table "products", force: :cascade do |t|
-    t.string "name"
-    t.integer "stock"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
+    t.string "name", null: false
+    t.integer "stock", null: false
+    t.check_constraint "stock >= 0", name: "products_stock_non_negative"
   end
 
   add_foreign_key "orders", "products"
