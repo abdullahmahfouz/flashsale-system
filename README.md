@@ -185,6 +185,25 @@ One way to create the loadtest database (not verified by running it; adjust if y
 DATABASE_URL=postgres://postgres:postgres@localhost:5433/flashsale_system_loadtest bin/rails db:create db:schema:load
 ```
 
+## Trade-offs
+
+Numbers below come from the single-run table in [Results](#results) and carry its caveats (one laptop, one 20 s run per cell, not like-for-like). They show direction, not magnitude.
+
+| Choice | What it buys | What it costs |
+| --- | --- | --- |
+| Row lock (`SELECT ... FOR UPDATE`) in `locked` | Check and decrement are atomic, so invariants 1 to 3 hold under the spike run. | Checkouts for the same product serialize, so one hot product is a single queue. In the spike runs `locked` served 1059.93 req/s against 1590.46 for `naive`. |
+| Pessimistic lock instead of an atomic `UPDATE ... WHERE stock > 0` or optimistic locking | Simple to read: load, check, decrement, insert in one transaction. | Holds a row lock and a pooled connection for the whole transaction. The alternatives were not implemented or measured here, so this is a design choice, not a measured win. |
+| Extra key lookups in `idempotent` (before the lock, and again after it) | A retry or a duplicate that waited on the lock gets the original order back with 200 instead of an error. | More queries per request. In the spike runs (all unique keys) `idempotent` served 840 req/s against 1059.93 for `locked`. In the retry-storm runs replays skip the lock and it was faster (1686.6 vs 396.93 req/s), consistent with the design but from one run each. |
+| Unique index on `idempotency_key` as the final arbiter | Correct even when two requests with the same key race past the application check; the loser rolls back, stock included. | Relies on catching `RecordNotUnique` and rolling back, so the losing request does wasted work before it learns it lost. |
+| `locked` answers a duplicate key with 409 and no key handling | Never double-charges and never crashes, with almost no extra code. | The client cannot tell a retry of its own order from a real conflict by status alone (only by the error body), and does not get the original order back. |
+| 422 when a replayed key has a different payload | A reused key cannot silently buy something else. | Extra comparison, and a client bug that reuses keys fails loudly instead of being absorbed. |
+| `quantity` must be exactly 1 | Invariant 3 counts orders and units identically, so the invariant check stays simple. | No multi-unit purchases. |
+| `CHECKOUT_MODE` read on every request | All three modes can be compared in one codebase and flipped without a redeploy. | A per-request environment lookup and a switch that a real service would not ship; an unset or unknown value returns 501. |
+| Postgres only on the request path | One source of truth for stock and orders, enforced by `CHECK (stock >= 0)` and the unique index. | Every request touches the database, so throughput is bounded by Postgres and the pool, not by an in-memory counter. Redis is not used yet (see Future work). |
+| `naive` kept in the codebase | Makes the failure reproducible: the spike run shows 1707 oversold and invariants 1 and 3 failing. | Deliberately unsafe code lives next to the safe code; it must never be selected in production. |
+
+Where this does not hold: the table says nothing about multiple products, multiple Puma processes or hosts, or a separate database host. Row locks behave the same across processes because they live in Postgres, but those setups were not run.
+
 ## Future work
 
 None of the following is implemented.
